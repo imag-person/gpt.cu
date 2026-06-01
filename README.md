@@ -27,8 +27,20 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+If you only want to verify the deterministic CPU reference path without a CUDA
+toolkit, compile and run the regression test directly with `g++`:
+
+```sh
+g++ -std=c++17 tests/simple_transformer_reference_test.cpp \
+  src/simple_transformer_reference.cpp -Isrc -o /tmp/simple_transformer_reference_test
+/tmp/simple_transformer_reference_test
+```
+
 Run the demo directly:
 
 ```sh
 ./build/simple_transformer_cuda
 ```
+
+The repository also includes a golden-output regression test for the CPU
+reference implementation used by the CUDA demo.
