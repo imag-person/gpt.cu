@@ -1,1 +1,34 @@
 # gpt.cu
+
+Small CUDA C++ experiments for transformer-style model building blocks.
+
+## Simple transformer CUDA demo
+
+This repository includes a self-contained CUDA C++ example that runs one tiny
+GPT-style transformer block over four token IDs:
+
+- token and positional embeddings
+- Q/K/V projections
+- scaled dot-product self-attention
+- output projection with residual connection
+- two-layer feed-forward network
+- language-model head producing vocabulary logits
+
+The executable also computes a CPU reference path and fails if the CUDA logits
+diverge from the CPU result.
+
+## Build and run
+
+Requirements: CMake 3.18+, a CUDA toolkit with `nvcc`, and a CUDA-capable GPU.
+
+```sh
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+Run the demo directly:
+
+```sh
+./build/simple_transformer_cuda
+```
