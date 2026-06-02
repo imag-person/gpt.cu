@@ -167,7 +167,19 @@ float maxAbsDiff(const std::vector<float>& lhs, const std::vector<float>& rhs) {
   return max_diff;
 }
 
-std::vector<float> computeReferenceLogits(const DemoInputs& demo) {
+std::vector<float> meanPoolSequence(const std::vector<float>& states, int seq_len,
+                                    int dim) {
+  std::vector<float> pooled(dim, 0.0f);
+  for (int channel = 0; channel < dim; ++channel) {
+    for (int pos = 0; pos < seq_len; ++pos) {
+      pooled[channel] += states[pos * dim + channel];
+    }
+    pooled[channel] /= static_cast<float>(seq_len);
+  }
+  return pooled;
+}
+
+std::vector<float> computeEncoderStates(const DemoInputs& demo) {
   auto x = embedTokens(demo);
   auto norm1 = cpuLayerNormRows(x, demo.norm_gamma, demo.norm_beta, kSeqLen,
                                 kModelDim);
@@ -189,6 +201,15 @@ std::vector<float> computeReferenceLogits(const DemoInputs& demo) {
   auto ffn = cpuLinear(hidden, demo.w2, demo.zero_model_bias, kSeqLen,
                        kHiddenDim, kModelDim);
   addInPlace(x, ffn);
+  return x;
+}
+
+std::vector<float> computeEncoderPooled(const DemoInputs& demo) {
+  return meanPoolSequence(computeEncoderStates(demo), kSeqLen, kModelDim);
+}
+
+std::vector<float> computeReferenceLogits(const DemoInputs& demo) {
+  auto x = computeEncoderStates(demo);
   return cpuLinear(x, demo.lm_head, demo.zero_vocab_bias, kSeqLen, kModelDim,
                    kVocabSize);
 }

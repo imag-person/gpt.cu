@@ -5,7 +5,8 @@ Small CUDA C++ experiments for transformer-style model building blocks.
 ## Simple transformer CUDA demo
 
 This repository includes a self-contained CUDA C++ example that runs one tiny
-GPT-style transformer block over four token IDs:
+transformer block over four token IDs, then demonstrates both decoder-style
+token probabilities and an encoder-style pooled embedding:
 
 - token and positional embeddings
 - Q/K/V projections
@@ -15,9 +16,10 @@ GPT-style transformer block over four token IDs:
 - output projection with residual connection
 - two-layer feed-forward network
 - language-model head producing vocabulary logits and softmax probabilities
+- mean-pooled encoder output for sequence-level embeddings
 
 The executable also computes a CPU reference path and fails if the CUDA
-probabilities diverge from the CPU result.
+probabilities or pooled encoder embedding diverge from the CPU result.
 
 ## Build and run
 

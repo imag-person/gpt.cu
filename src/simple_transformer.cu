@@ -138,6 +138,18 @@ __global__ void softmaxRowsKernel(const float* input, float* output, int rows,
   }
 }
 
+__global__ void meanPoolSequenceKernel(const float* states, float* pooled,
+                                       int seq_len, int dim) {
+  int channel = blockIdx.x * blockDim.x + threadIdx.x;
+  if (channel >= dim) return;
+
+  float sum = 0.0f;
+  for (int pos = 0; pos < seq_len; ++pos) {
+    sum += states[pos * dim + channel];
+  }
+  pooled[channel] = sum / static_cast<float>(seq_len);
+}
+
 __global__ void addKernel(const float* lhs, const float* rhs, float* out,
                           int total) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -186,6 +198,8 @@ int main() {
   const auto& zero_vocab_bias = demo.zero_vocab_bias;
   const auto cpu_probabilities =
       simple_transformer_reference::computeReferenceProbabilities(demo);
+  const auto cpu_encoder_pooled =
+      simple_transformer_reference::computeEncoderPooled(demo);
 
   int* d_tokens = copyToDevice(tokens);
   float* d_token_embedding = copyToDevice(token_embedding);
@@ -226,6 +240,7 @@ int main() {
                                    simple_transformer_reference::kVocabSize);
   float* d_probabilities = allocateDevice(simple_transformer_reference::kSeqLen *
                                           simple_transformer_reference::kVocabSize);
+  float* d_encoder_pooled = allocateDevice(simple_transformer_reference::kModelDim);
 
   int model_values = simple_transformer_reference::kSeqLen *
                      simple_transformer_reference::kModelDim;
@@ -293,6 +308,9 @@ int main() {
   softmaxRowsKernel<<<1, simple_transformer_reference::kSeqLen>>>(
       d_logits, d_probabilities, simple_transformer_reference::kSeqLen,
       simple_transformer_reference::kVocabSize);
+  meanPoolSequenceKernel<<<1, simple_transformer_reference::kModelDim>>>(
+      d_x, d_encoder_pooled, simple_transformer_reference::kSeqLen,
+      simple_transformer_reference::kModelDim);
   CHECK_CUDA(cudaGetLastError());
   CHECK_CUDA(cudaDeviceSynchronize());
 
@@ -301,17 +319,29 @@ int main() {
   CHECK_CUDA(cudaMemcpy(gpu_probabilities.data(), d_probabilities,
                         gpu_probabilities.size() * sizeof(float),
                         cudaMemcpyDeviceToHost));
+  std::vector<float> gpu_encoder_pooled(simple_transformer_reference::kModelDim);
+  CHECK_CUDA(cudaMemcpy(gpu_encoder_pooled.data(), d_encoder_pooled,
+                        gpu_encoder_pooled.size() * sizeof(float),
+                        cudaMemcpyDeviceToHost));
 
   float max_diff = simple_transformer_reference::maxAbsDiff(cpu_probabilities,
                                                             gpu_probabilities);
+  float encoder_max_diff = simple_transformer_reference::maxAbsDiff(
+      cpu_encoder_pooled, gpu_encoder_pooled);
   std::cout << "Simple CUDA transformer block demo\n";
   std::cout << "Max |CPU - GPU| probability diff: " << max_diff << "\n";
+  std::cout << "Max |CPU - GPU| encoder pooled diff: " << encoder_max_diff
+            << "\n";
   std::cout << "Last-token probabilities:";
   for (int vocab = 0; vocab < simple_transformer_reference::kVocabSize; ++vocab) {
     std::cout << ' ' << std::fixed << std::setprecision(5)
               << gpu_probabilities[(simple_transformer_reference::kSeqLen - 1) *
                                        simple_transformer_reference::kVocabSize +
                                    vocab];
+  }
+  std::cout << "\nPooled encoder embedding:";
+  for (float value : gpu_encoder_pooled) {
+    std::cout << ' ' << std::fixed << std::setprecision(5) << value;
   }
   std::cout << '\n';
 
@@ -342,9 +372,11 @@ int main() {
   CHECK_CUDA(cudaFree(d_ffn));
   CHECK_CUDA(cudaFree(d_logits));
   CHECK_CUDA(cudaFree(d_probabilities));
+  CHECK_CUDA(cudaFree(d_encoder_pooled));
 
-  if (!std::isfinite(max_diff) || max_diff > 1.0e-4f) {
-    std::cerr << "Validation failed: GPU probabilities diverged from CPU reference\n";
+  if (!std::isfinite(max_diff) || max_diff > 1.0e-4f ||
+      !std::isfinite(encoder_max_diff) || encoder_max_diff > 1.0e-4f) {
+    std::cerr << "Validation failed: GPU outputs diverged from CPU reference\n";
     return EXIT_FAILURE;
   }
   return EXIT_SUCCESS;

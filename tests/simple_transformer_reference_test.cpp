@@ -21,29 +21,52 @@ std::vector<float> expectedProbabilities() {
   };
 }
 
+std::vector<float> expectedEncoderPooled() {
+  return {0.00672750f, 0.02040809f, 0.03120087f, 0.03816716f,
+          0.03971132f, 0.03652965f, 0.02799741f, 0.01643276f};
+}
+
 }  // namespace
 
 int main() {
   const auto demo = simple_transformer_reference::makeDemoInputs();
-  const auto actual =
+  const auto actual_probabilities =
       simple_transformer_reference::computeReferenceProbabilities(demo);
-  const auto expected = expectedProbabilities();
+  const auto expected_probabilities = expectedProbabilities();
+  const auto actual_encoder_pooled =
+      simple_transformer_reference::computeEncoderPooled(demo);
+  const auto expected_encoder_pooled = expectedEncoderPooled();
 
-  if (actual.size() != expected.size()) {
-    std::cerr << "Unexpected probability size: " << actual.size() << " vs "
-              << expected.size() << '\n';
+  if (actual_probabilities.size() != expected_probabilities.size()) {
+    std::cerr << "Unexpected probability size: "
+              << actual_probabilities.size() << " vs "
+              << expected_probabilities.size() << '\n';
+    return 1;
+  }
+  if (actual_encoder_pooled.size() != expected_encoder_pooled.size()) {
+    std::cerr << "Unexpected encoder pooled size: "
+              << actual_encoder_pooled.size() << " vs "
+              << expected_encoder_pooled.size() << '\n';
     return 1;
   }
 
-  const float max_diff =
-      simple_transformer_reference::maxAbsDiff(actual, expected);
-  if (!std::isfinite(max_diff) || max_diff > 1.0e-6f) {
+  const float probability_max_diff = simple_transformer_reference::maxAbsDiff(
+      actual_probabilities, expected_probabilities);
+  const float encoder_max_diff = simple_transformer_reference::maxAbsDiff(
+      actual_encoder_pooled, expected_encoder_pooled);
+  if (!std::isfinite(probability_max_diff) || probability_max_diff > 1.0e-6f) {
     std::cerr << "Reference probability regression failed, max diff = "
-              << max_diff << '\n';
+              << probability_max_diff << '\n';
+    return 1;
+  }
+  if (!std::isfinite(encoder_max_diff) || encoder_max_diff > 1.0e-6f) {
+    std::cerr << "Reference encoder regression failed, max diff = "
+              << encoder_max_diff << '\n';
     return 1;
   }
 
-  std::cout << "simple_transformer_reference_test passed, max diff = "
-            << max_diff << '\n';
+  std::cout << "simple_transformer_reference_test passed, probability diff = "
+            << probability_max_diff << ", encoder diff = " << encoder_max_diff
+            << '\n';
   return 0;
 }

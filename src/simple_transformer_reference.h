@@ -48,6 +48,10 @@ std::vector<float> cpuSoftmaxRows(const std::vector<float>& input, int rows,
                                   int cols);
 void addInPlace(std::vector<float>& lhs, const std::vector<float>& rhs);
 float maxAbsDiff(const std::vector<float>& lhs, const std::vector<float>& rhs);
+std::vector<float> meanPoolSequence(const std::vector<float>& states, int seq_len,
+                                    int dim);
+std::vector<float> computeEncoderStates(const DemoInputs& demo);
+std::vector<float> computeEncoderPooled(const DemoInputs& demo);
 std::vector<float> computeReferenceLogits(const DemoInputs& demo);
 std::vector<float> computeReferenceProbabilities(const DemoInputs& demo);
 
