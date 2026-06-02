@@ -14,6 +14,11 @@ forward pass looks like on the GPU.
   load bf16, accumulate in fp32, and store bf16. The attention score matrix
   and the final logits stay in fp32 for softmax / argmax precision.
   Requires Ampere or newer (`sm_80+`).
+- **`gpt_fp16.cu`** — fp16-storage variant of `gpt.cu`. Same design as the
+  bf16 variant but uses `__half` (IEEE fp16). Kernels load fp16 → fp32,
+  accumulate in fp32, and store fp32 → fp16; the attention matrix and logits
+  stay in fp32. fp16 has a narrower exponent range than bf16 (max ≈ 65504),
+  but is available on Pascal and newer (`sm_53+`).
 
 ## Build
 
@@ -21,6 +26,7 @@ forward pass looks like on the GPU.
 nvcc -O3 -std=c++17 gpt.cu -o gpt
 nvcc -O3 -std=c++17 encoder.cu -o encoder
 nvcc -O3 -std=c++17 -arch=sm_80 gpt_bf16.cu -o gpt_bf16
+nvcc -O3 -std=c++17 -arch=sm_53 gpt_fp16.cu -o gpt_fp16
 ```
 
 ## Run
@@ -34,6 +40,9 @@ nvcc -O3 -std=c++17 -arch=sm_80 gpt_bf16.cu -o gpt_bf16
 
 ./gpt_bf16         # bf16 variant; same interface as ./gpt
 ./gpt_bf16 64
+
+./gpt_fp16         # fp16 variant; same interface as ./gpt
+./gpt_fp16 64
 ```
 
 Both models are initialised with a fixed RNG seed, so the output is
