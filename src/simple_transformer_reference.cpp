@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 
 namespace simple_transformer_reference {
 
@@ -12,6 +13,38 @@ std::vector<float> makeValues(std::size_t count, float scale) {
     values[i] = scale * std::sin(static_cast<float>(i + 1) * 0.37f);
   }
   return values;
+}
+
+std::uint16_t floatToBfloat16Bits(float value) {
+  std::uint32_t bits = 0;
+  std::memcpy(&bits, &value, sizeof(bits));
+  bits += 0x00007fffu + ((bits >> 16u) & 1u);
+  return static_cast<std::uint16_t>(bits >> 16u);
+}
+
+float bfloat16BitsToFloat(std::uint16_t bits) {
+  std::uint32_t widened = static_cast<std::uint32_t>(bits) << 16u;
+  float value = 0.0f;
+  std::memcpy(&value, &widened, sizeof(value));
+  return value;
+}
+
+std::vector<std::uint16_t> quantizeToBfloat16(
+    const std::vector<float>& values) {
+  std::vector<std::uint16_t> quantized(values.size());
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    quantized[i] = floatToBfloat16Bits(values[i]);
+  }
+  return quantized;
+}
+
+std::vector<float> dequantizeFromBfloat16(
+    const std::vector<std::uint16_t>& values) {
+  std::vector<float> dequantized(values.size());
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    dequantized[i] = bfloat16BitsToFloat(values[i]);
+  }
+  return dequantized;
 }
 
 DemoInputs makeDemoInputs() {
@@ -32,6 +65,28 @@ DemoInputs makeDemoInputs() {
   demo.zero_hidden_bias.assign(kHiddenDim, 0.0f);
   demo.zero_vocab_bias.assign(kVocabSize, 0.0f);
   return demo;
+}
+
+DemoInputs quantizeDemoInputsToBfloat16(const DemoInputs& demo) {
+  DemoInputs quantized = demo;
+  auto quantize = [](const std::vector<float>& values) {
+    return dequantizeFromBfloat16(quantizeToBfloat16(values));
+  };
+  quantized.token_embedding = quantize(demo.token_embedding);
+  quantized.position_embedding = quantize(demo.position_embedding);
+  quantized.wq = quantize(demo.wq);
+  quantized.wk = quantize(demo.wk);
+  quantized.wv = quantize(demo.wv);
+  quantized.wo = quantize(demo.wo);
+  quantized.w1 = quantize(demo.w1);
+  quantized.w2 = quantize(demo.w2);
+  quantized.lm_head = quantize(demo.lm_head);
+  quantized.norm_gamma = quantize(demo.norm_gamma);
+  quantized.norm_beta = quantize(demo.norm_beta);
+  quantized.zero_model_bias = quantize(demo.zero_model_bias);
+  quantized.zero_hidden_bias = quantize(demo.zero_hidden_bias);
+  quantized.zero_vocab_bias = quantize(demo.zero_vocab_bias);
+  return quantized;
 }
 
 std::vector<float> embedTokens(const DemoInputs& demo) {
@@ -216,6 +271,14 @@ std::vector<float> computeReferenceLogits(const DemoInputs& demo) {
 
 std::vector<float> computeReferenceProbabilities(const DemoInputs& demo) {
   return cpuSoftmaxRows(computeReferenceLogits(demo), kSeqLen, kVocabSize);
+}
+
+std::vector<float> computeBfloat16ReferenceProbabilities(const DemoInputs& demo) {
+  return computeReferenceProbabilities(quantizeDemoInputsToBfloat16(demo));
+}
+
+std::vector<float> computeBfloat16EncoderPooled(const DemoInputs& demo) {
+  return computeEncoderPooled(quantizeDemoInputsToBfloat16(demo));
 }
 
 }  // namespace simple_transformer_reference

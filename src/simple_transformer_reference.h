@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace simple_transformer_reference {
@@ -30,7 +31,14 @@ struct DemoInputs {
 };
 
 std::vector<float> makeValues(std::size_t count, float scale);
+std::uint16_t floatToBfloat16Bits(float value);
+float bfloat16BitsToFloat(std::uint16_t bits);
+std::vector<std::uint16_t> quantizeToBfloat16(
+    const std::vector<float>& values);
+std::vector<float> dequantizeFromBfloat16(
+    const std::vector<std::uint16_t>& values);
 DemoInputs makeDemoInputs();
+DemoInputs quantizeDemoInputsToBfloat16(const DemoInputs& demo);
 std::vector<float> embedTokens(const DemoInputs& demo);
 std::vector<float> cpuLinear(const std::vector<float>& input,
                              const std::vector<float>& weight,
@@ -54,5 +62,7 @@ std::vector<float> computeEncoderStates(const DemoInputs& demo);
 std::vector<float> computeEncoderPooled(const DemoInputs& demo);
 std::vector<float> computeReferenceLogits(const DemoInputs& demo);
 std::vector<float> computeReferenceProbabilities(const DemoInputs& demo);
+std::vector<float> computeBfloat16ReferenceProbabilities(const DemoInputs& demo);
+std::vector<float> computeBfloat16EncoderPooled(const DemoInputs& demo);
 
 }  // namespace simple_transformer_reference
