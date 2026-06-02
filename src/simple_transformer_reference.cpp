@@ -26,6 +26,8 @@ DemoInputs makeDemoInputs() {
   demo.w1 = makeValues(kHiddenDim * kModelDim, 0.09f);
   demo.w2 = makeValues(kModelDim * kHiddenDim, 0.05f);
   demo.lm_head = makeValues(kVocabSize * kModelDim, 0.08f);
+  demo.norm_gamma.assign(kModelDim, 1.0f);
+  demo.norm_beta.assign(kModelDim, 0.0f);
   demo.zero_model_bias.assign(kModelDim, 0.0f);
   demo.zero_hidden_bias.assign(kHiddenDim, 0.0f);
   demo.zero_vocab_bias.assign(kVocabSize, 0.0f);
@@ -96,6 +98,63 @@ std::vector<float> cpuAttention(const std::vector<float>& q,
   return output;
 }
 
+std::vector<float> cpuLayerNormRows(const std::vector<float>& input,
+                                    const std::vector<float>& gamma,
+                                    const std::vector<float>& beta, int rows,
+                                    int dim) {
+  std::vector<float> output(rows * dim, 0.0f);
+  constexpr float epsilon = 1.0e-5f;
+
+  for (int row = 0; row < rows; ++row) {
+    float mean = 0.0f;
+    for (int channel = 0; channel < dim; ++channel) {
+      mean += input[row * dim + channel];
+    }
+    mean /= static_cast<float>(dim);
+
+    float variance = 0.0f;
+    for (int channel = 0; channel < dim; ++channel) {
+      float centered = input[row * dim + channel] - mean;
+      variance += centered * centered;
+    }
+    variance /= static_cast<float>(dim);
+
+    float inv_std = 1.0f / std::sqrt(variance + epsilon);
+    for (int channel = 0; channel < dim; ++channel) {
+      float normalized = (input[row * dim + channel] - mean) * inv_std;
+      output[row * dim + channel] = normalized * gamma[channel] + beta[channel];
+    }
+  }
+  return output;
+}
+
+void cpuReluInPlace(std::vector<float>& values) {
+  for (float& value : values) value = std::max(value, 0.0f);
+}
+
+std::vector<float> cpuSoftmaxRows(const std::vector<float>& input, int rows,
+                                  int cols) {
+  std::vector<float> output(rows * cols, 0.0f);
+  for (int row = 0; row < rows; ++row) {
+    float max_value = -1.0e30f;
+    for (int col = 0; col < cols; ++col) {
+      max_value = std::max(max_value, input[row * cols + col]);
+    }
+
+    float normalizer = 0.0f;
+    for (int col = 0; col < cols; ++col) {
+      float probability = std::exp(input[row * cols + col] - max_value);
+      output[row * cols + col] = probability;
+      normalizer += probability;
+    }
+
+    for (int col = 0; col < cols; ++col) {
+      output[row * cols + col] /= normalizer;
+    }
+  }
+  return output;
+}
+
 void addInPlace(std::vector<float>& lhs, const std::vector<float>& rhs) {
   for (std::size_t i = 0; i < lhs.size(); ++i) lhs[i] += rhs[i];
 }
@@ -110,24 +169,32 @@ float maxAbsDiff(const std::vector<float>& lhs, const std::vector<float>& rhs) {
 
 std::vector<float> computeReferenceLogits(const DemoInputs& demo) {
   auto x = embedTokens(demo);
-  auto q = cpuLinear(x, demo.wq, demo.zero_model_bias, kSeqLen, kModelDim,
+  auto norm1 = cpuLayerNormRows(x, demo.norm_gamma, demo.norm_beta, kSeqLen,
+                                kModelDim);
+  auto q = cpuLinear(norm1, demo.wq, demo.zero_model_bias, kSeqLen, kModelDim,
                      kModelDim);
-  auto k = cpuLinear(x, demo.wk, demo.zero_model_bias, kSeqLen, kModelDim,
+  auto k = cpuLinear(norm1, demo.wk, demo.zero_model_bias, kSeqLen, kModelDim,
                      kModelDim);
-  auto v = cpuLinear(x, demo.wv, demo.zero_model_bias, kSeqLen, kModelDim,
+  auto v = cpuLinear(norm1, demo.wv, demo.zero_model_bias, kSeqLen, kModelDim,
                      kModelDim);
   auto attn = cpuAttention(q, k, v);
   auto projected = cpuLinear(attn, demo.wo, demo.zero_model_bias, kSeqLen,
                              kModelDim, kModelDim);
   addInPlace(x, projected);
-  auto hidden = cpuLinear(x, demo.w1, demo.zero_hidden_bias, kSeqLen,
+  auto norm2 = cpuLayerNormRows(x, demo.norm_gamma, demo.norm_beta, kSeqLen,
+                                kModelDim);
+  auto hidden = cpuLinear(norm2, demo.w1, demo.zero_hidden_bias, kSeqLen,
                           kModelDim, kHiddenDim);
-  for (float& value : hidden) value = std::max(value, 0.0f);
+  cpuReluInPlace(hidden);
   auto ffn = cpuLinear(hidden, demo.w2, demo.zero_model_bias, kSeqLen,
                        kHiddenDim, kModelDim);
   addInPlace(x, ffn);
   return cpuLinear(x, demo.lm_head, demo.zero_vocab_bias, kSeqLen, kModelDim,
                    kVocabSize);
+}
+
+std::vector<float> computeReferenceProbabilities(const DemoInputs& demo) {
+  return cpuSoftmaxRows(computeReferenceLogits(demo), kSeqLen, kVocabSize);
 }
 
 }  // namespace simple_transformer_reference

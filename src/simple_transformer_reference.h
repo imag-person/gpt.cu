@@ -22,6 +22,8 @@ struct DemoInputs {
   std::vector<float> w1;
   std::vector<float> w2;
   std::vector<float> lm_head;
+  std::vector<float> norm_gamma;
+  std::vector<float> norm_beta;
   std::vector<float> zero_model_bias;
   std::vector<float> zero_hidden_bias;
   std::vector<float> zero_vocab_bias;
@@ -37,8 +39,16 @@ std::vector<float> cpuLinear(const std::vector<float>& input,
 std::vector<float> cpuAttention(const std::vector<float>& q,
                                 const std::vector<float>& k,
                                 const std::vector<float>& v);
+std::vector<float> cpuLayerNormRows(const std::vector<float>& input,
+                                    const std::vector<float>& gamma,
+                                    const std::vector<float>& beta, int rows,
+                                    int dim);
+void cpuReluInPlace(std::vector<float>& values);
+std::vector<float> cpuSoftmaxRows(const std::vector<float>& input, int rows,
+                                  int cols);
 void addInPlace(std::vector<float>& lhs, const std::vector<float>& rhs);
 float maxAbsDiff(const std::vector<float>& lhs, const std::vector<float>& rhs);
 std::vector<float> computeReferenceLogits(const DemoInputs& demo);
+std::vector<float> computeReferenceProbabilities(const DemoInputs& demo);
 
 }  // namespace simple_transformer_reference

@@ -10,12 +10,14 @@ GPT-style transformer block over four token IDs:
 - token and positional embeddings
 - Q/K/V projections
 - scaled dot-product self-attention
+- layer normalization before attention and the feed-forward network
+- ReLU activation in the feed-forward network
 - output projection with residual connection
 - two-layer feed-forward network
-- language-model head producing vocabulary logits
+- language-model head producing vocabulary logits and softmax probabilities
 
-The executable also computes a CPU reference path and fails if the CUDA logits
-diverge from the CPU result.
+The executable also computes a CPU reference path and fails if the CUDA
+probabilities diverge from the CPU result.
 
 ## Build and run
 
@@ -43,4 +45,4 @@ Run the demo directly:
 ```
 
 The repository also includes a golden-output regression test for the CPU
-reference implementation used by the CUDA demo.
+reference implementation, including layer normalization, ReLU, and softmax.

@@ -6,18 +6,18 @@
 
 namespace {
 
-std::vector<float> expectedLogits() {
+std::vector<float> expectedProbabilities() {
   return {
-      -0.01645244f, 0.01707258f,  -0.01713129f, 0.01662662f,  -0.01557519f,
-      0.01401156f,  -0.01198715f, 0.00956854f,  -0.00683527f, 0.00387721f,
-      -0.00079165f, -0.00231994f, 0.01102682f,  -0.01341424f, 0.01536053f,
-      -0.01680169f, 0.01769031f,  -0.01799718f, 0.01771221f,  -0.01684476f,
-      0.01542337f,  -0.01349477f, 0.01112240f,  -0.00838426f, 0.03494637f,
-      -0.03635882f, 0.03657559f,  -0.03558956f, 0.03343316f,  -0.03017729f,
-      0.02592904f,  -0.02082809f, 0.01504221f,  -0.00876166f, 0.00219298f,
-      0.00444782f,  -0.01580957f, 0.02060716f,  -0.02472708f, 0.02803384f,
-      -0.03041869f, 0.03180322f,  -0.03214188f, 0.03142355f,  -0.02967184f,
-      0.02694437f,  -0.02333081f, 0.01895002f,
+      0.08275954f, 0.08402319f, 0.08261360f, 0.08412480f, 0.08256303f,
+      0.08412448f, 0.08261423f, 0.08402226f, 0.08276071f, 0.08383184f,
+      0.08298379f, 0.08357853f, 0.08514541f, 0.08111084f, 0.08574300f,
+      0.08069278f, 0.08601534f, 0.08060645f, 0.08592376f, 0.08086205f,
+      0.08548132f, 0.08142921f, 0.08475046f, 0.08223947f, 0.08691728f,
+      0.07932428f, 0.08703401f, 0.07945991f, 0.08662571f, 0.08006144f,
+      0.08575235f, 0.08105969f, 0.08453970f, 0.08233615f, 0.08315682f,
+      0.08373269f, 0.08273365f, 0.08413337f, 0.08222622f, 0.08458877f,
+      0.08185975f, 0.08487587f, 0.08167998f, 0.08495538f, 0.08170912f,
+      0.08481634f, 0.08194359f, 0.08447788f,
   };
 }
 
@@ -25,18 +25,21 @@ std::vector<float> expectedLogits() {
 
 int main() {
   const auto demo = simple_transformer_reference::makeDemoInputs();
-  const auto actual = simple_transformer_reference::computeReferenceLogits(demo);
-  const auto expected = expectedLogits();
+  const auto actual =
+      simple_transformer_reference::computeReferenceProbabilities(demo);
+  const auto expected = expectedProbabilities();
 
   if (actual.size() != expected.size()) {
-    std::cerr << "Unexpected logits size: " << actual.size() << " vs "
+    std::cerr << "Unexpected probability size: " << actual.size() << " vs "
               << expected.size() << '\n';
     return 1;
   }
 
-  const float max_diff = simple_transformer_reference::maxAbsDiff(actual, expected);
+  const float max_diff =
+      simple_transformer_reference::maxAbsDiff(actual, expected);
   if (!std::isfinite(max_diff) || max_diff > 1.0e-6f) {
-    std::cerr << "Reference regression failed, max diff = " << max_diff << '\n';
+    std::cerr << "Reference probability regression failed, max diff = "
+              << max_diff << '\n';
     return 1;
   }
 

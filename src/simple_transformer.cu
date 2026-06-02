@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
@@ -50,6 +51,32 @@ __global__ void linearKernel(const float* input, const float* weight,
   output[idx] = sum;
 }
 
+__global__ void layerNormKernel(const float* input, const float* gamma,
+                                const float* beta, float* output, int rows,
+                                int dim) {
+  int row = blockIdx.x * blockDim.x + threadIdx.x;
+  if (row >= rows) return;
+
+  float mean = 0.0f;
+  for (int channel = 0; channel < dim; ++channel) {
+    mean += input[row * dim + channel];
+  }
+  mean /= static_cast<float>(dim);
+
+  float variance = 0.0f;
+  for (int channel = 0; channel < dim; ++channel) {
+    float centered = input[row * dim + channel] - mean;
+    variance += centered * centered;
+  }
+  variance /= static_cast<float>(dim);
+
+  float inv_std = rsqrtf(variance + 1.0e-5f);
+  for (int channel = 0; channel < dim; ++channel) {
+    float normalized = (input[row * dim + channel] - mean) * inv_std;
+    output[row * dim + channel] = normalized * gamma[channel] + beta[channel];
+  }
+}
+
 __global__ void attentionKernel(const float* q, const float* k, const float* v,
                                 float* out, int seq_len, int dim) {
   int query_pos = blockIdx.x * blockDim.x + threadIdx.x;
@@ -87,6 +114,28 @@ __global__ void attentionKernel(const float* q, const float* k, const float* v,
 __global__ void reluKernel(float* values, int total) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < total) values[idx] = fmaxf(values[idx], 0.0f);
+}
+
+__global__ void softmaxRowsKernel(const float* input, float* output, int rows,
+                                  int cols) {
+  int row = blockIdx.x * blockDim.x + threadIdx.x;
+  if (row >= rows) return;
+
+  float max_value = -1.0e30f;
+  for (int col = 0; col < cols; ++col) {
+    max_value = fmaxf(max_value, input[row * cols + col]);
+  }
+
+  float normalizer = 0.0f;
+  for (int col = 0; col < cols; ++col) {
+    float probability = expf(input[row * cols + col] - max_value);
+    output[row * cols + col] = probability;
+    normalizer += probability;
+  }
+
+  for (int col = 0; col < cols; ++col) {
+    output[row * cols + col] /= normalizer;
+  }
 }
 
 __global__ void addKernel(const float* lhs, const float* rhs, float* out,
@@ -130,10 +179,13 @@ int main() {
   const auto& w1 = demo.w1;
   const auto& w2 = demo.w2;
   const auto& lm_head = demo.lm_head;
+  const auto& norm_gamma = demo.norm_gamma;
+  const auto& norm_beta = demo.norm_beta;
   const auto& zero_model_bias = demo.zero_model_bias;
   const auto& zero_hidden_bias = demo.zero_hidden_bias;
   const auto& zero_vocab_bias = demo.zero_vocab_bias;
-  const auto cpu_logits = simple_transformer_reference::computeReferenceLogits(demo);
+  const auto cpu_probabilities =
+      simple_transformer_reference::computeReferenceProbabilities(demo);
 
   int* d_tokens = copyToDevice(tokens);
   float* d_token_embedding = copyToDevice(token_embedding);
@@ -145,11 +197,15 @@ int main() {
   float* d_w1 = copyToDevice(w1);
   float* d_w2 = copyToDevice(w2);
   float* d_lm_head = copyToDevice(lm_head);
+  float* d_norm_gamma = copyToDevice(norm_gamma);
+  float* d_norm_beta = copyToDevice(norm_beta);
   float* d_zero_model_bias = copyToDevice(zero_model_bias);
   float* d_zero_hidden_bias = copyToDevice(zero_hidden_bias);
   float* d_zero_vocab_bias = copyToDevice(zero_vocab_bias);
   float* d_x = allocateDevice(simple_transformer_reference::kSeqLen *
                               simple_transformer_reference::kModelDim);
+  float* d_norm1 = allocateDevice(simple_transformer_reference::kSeqLen *
+                                  simple_transformer_reference::kModelDim);
   float* d_q = allocateDevice(simple_transformer_reference::kSeqLen *
                               simple_transformer_reference::kModelDim);
   float* d_k = allocateDevice(simple_transformer_reference::kSeqLen *
@@ -160,12 +216,16 @@ int main() {
                                  simple_transformer_reference::kModelDim);
   float* d_projected = allocateDevice(simple_transformer_reference::kSeqLen *
                                       simple_transformer_reference::kModelDim);
+  float* d_norm2 = allocateDevice(simple_transformer_reference::kSeqLen *
+                                  simple_transformer_reference::kModelDim);
   float* d_hidden = allocateDevice(simple_transformer_reference::kSeqLen *
                                    simple_transformer_reference::kHiddenDim);
   float* d_ffn = allocateDevice(simple_transformer_reference::kSeqLen *
                                 simple_transformer_reference::kModelDim);
   float* d_logits = allocateDevice(simple_transformer_reference::kSeqLen *
                                    simple_transformer_reference::kVocabSize);
+  float* d_probabilities = allocateDevice(simple_transformer_reference::kSeqLen *
+                                          simple_transformer_reference::kVocabSize);
 
   int model_values = simple_transformer_reference::kSeqLen *
                      simple_transformer_reference::kModelDim;
@@ -178,16 +238,23 @@ int main() {
       d_tokens, d_token_embedding, d_position_embedding, d_x,
       simple_transformer_reference::kSeqLen,
       simple_transformer_reference::kModelDim);
+  layerNormKernel<<<1, simple_transformer_reference::kSeqLen>>>(
+      d_x, d_norm_gamma, d_norm_beta, d_norm1,
+      simple_transformer_reference::kSeqLen,
+      simple_transformer_reference::kModelDim);
   linearKernel<<<(model_values + threads - 1) / threads, threads>>>(
-      d_x, d_wq, d_zero_model_bias, d_q, simple_transformer_reference::kSeqLen,
+      d_norm1, d_wq, d_zero_model_bias, d_q,
+      simple_transformer_reference::kSeqLen,
       simple_transformer_reference::kModelDim,
       simple_transformer_reference::kModelDim);
   linearKernel<<<(model_values + threads - 1) / threads, threads>>>(
-      d_x, d_wk, d_zero_model_bias, d_k, simple_transformer_reference::kSeqLen,
+      d_norm1, d_wk, d_zero_model_bias, d_k,
+      simple_transformer_reference::kSeqLen,
       simple_transformer_reference::kModelDim,
       simple_transformer_reference::kModelDim);
   linearKernel<<<(model_values + threads - 1) / threads, threads>>>(
-      d_x, d_wv, d_zero_model_bias, d_v, simple_transformer_reference::kSeqLen,
+      d_norm1, d_wv, d_zero_model_bias, d_v,
+      simple_transformer_reference::kSeqLen,
       simple_transformer_reference::kModelDim,
       simple_transformer_reference::kModelDim);
   attentionKernel<<<1, simple_transformer_reference::kSeqLen>>>(
@@ -200,8 +267,12 @@ int main() {
       simple_transformer_reference::kModelDim);
   addKernel<<<(model_values + threads - 1) / threads, threads>>>(
       d_x, d_projected, d_x, model_values);
+  layerNormKernel<<<1, simple_transformer_reference::kSeqLen>>>(
+      d_x, d_norm_gamma, d_norm_beta, d_norm2,
+      simple_transformer_reference::kSeqLen,
+      simple_transformer_reference::kModelDim);
   linearKernel<<<(hidden_values + threads - 1) / threads, threads>>>(
-      d_x, d_w1, d_zero_hidden_bias, d_hidden,
+      d_norm2, d_w1, d_zero_hidden_bias, d_hidden,
       simple_transformer_reference::kSeqLen,
       simple_transformer_reference::kModelDim,
       simple_transformer_reference::kHiddenDim);
@@ -219,24 +290,28 @@ int main() {
       simple_transformer_reference::kSeqLen,
       simple_transformer_reference::kModelDim,
       simple_transformer_reference::kVocabSize);
+  softmaxRowsKernel<<<1, simple_transformer_reference::kSeqLen>>>(
+      d_logits, d_probabilities, simple_transformer_reference::kSeqLen,
+      simple_transformer_reference::kVocabSize);
   CHECK_CUDA(cudaGetLastError());
   CHECK_CUDA(cudaDeviceSynchronize());
 
-  std::vector<float> gpu_logits(simple_transformer_reference::kSeqLen *
-                                simple_transformer_reference::kVocabSize);
-  CHECK_CUDA(cudaMemcpy(gpu_logits.data(), d_logits,
-                        gpu_logits.size() * sizeof(float),
+  std::vector<float> gpu_probabilities(simple_transformer_reference::kSeqLen *
+                                       simple_transformer_reference::kVocabSize);
+  CHECK_CUDA(cudaMemcpy(gpu_probabilities.data(), d_probabilities,
+                        gpu_probabilities.size() * sizeof(float),
                         cudaMemcpyDeviceToHost));
 
-  float max_diff = simple_transformer_reference::maxAbsDiff(cpu_logits, gpu_logits);
+  float max_diff = simple_transformer_reference::maxAbsDiff(cpu_probabilities,
+                                                            gpu_probabilities);
   std::cout << "Simple CUDA transformer block demo\n";
-  std::cout << "Max |CPU - GPU| logits diff: " << max_diff << "\n";
-  std::cout << "Last-token logits:";
+  std::cout << "Max |CPU - GPU| probability diff: " << max_diff << "\n";
+  std::cout << "Last-token probabilities:";
   for (int vocab = 0; vocab < simple_transformer_reference::kVocabSize; ++vocab) {
     std::cout << ' ' << std::fixed << std::setprecision(5)
-              << gpu_logits[(simple_transformer_reference::kSeqLen - 1) *
-                                simple_transformer_reference::kVocabSize +
-                            vocab];
+              << gpu_probabilities[(simple_transformer_reference::kSeqLen - 1) *
+                                       simple_transformer_reference::kVocabSize +
+                                   vocab];
   }
   std::cout << '\n';
 
@@ -250,21 +325,26 @@ int main() {
   CHECK_CUDA(cudaFree(d_w1));
   CHECK_CUDA(cudaFree(d_w2));
   CHECK_CUDA(cudaFree(d_lm_head));
+  CHECK_CUDA(cudaFree(d_norm_gamma));
+  CHECK_CUDA(cudaFree(d_norm_beta));
   CHECK_CUDA(cudaFree(d_zero_model_bias));
   CHECK_CUDA(cudaFree(d_zero_hidden_bias));
   CHECK_CUDA(cudaFree(d_zero_vocab_bias));
   CHECK_CUDA(cudaFree(d_x));
+  CHECK_CUDA(cudaFree(d_norm1));
   CHECK_CUDA(cudaFree(d_q));
   CHECK_CUDA(cudaFree(d_k));
   CHECK_CUDA(cudaFree(d_v));
   CHECK_CUDA(cudaFree(d_attn));
   CHECK_CUDA(cudaFree(d_projected));
+  CHECK_CUDA(cudaFree(d_norm2));
   CHECK_CUDA(cudaFree(d_hidden));
   CHECK_CUDA(cudaFree(d_ffn));
   CHECK_CUDA(cudaFree(d_logits));
+  CHECK_CUDA(cudaFree(d_probabilities));
 
   if (!std::isfinite(max_diff) || max_diff > 1.0e-4f) {
-    std::cerr << "Validation failed: GPU result diverged from CPU reference\n";
+    std::cerr << "Validation failed: GPU probabilities diverged from CPU reference\n";
     return EXIT_FAILURE;
   }
   return EXIT_SUCCESS;
