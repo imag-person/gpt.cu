@@ -37,8 +37,15 @@ std::vector<std::uint16_t> quantizeToBfloat16(
     const std::vector<float>& values);
 std::vector<float> dequantizeFromBfloat16(
     const std::vector<std::uint16_t>& values);
+std::uint16_t floatToFloat16Bits(float value);
+float float16BitsToFloat(std::uint16_t bits);
+std::vector<std::uint16_t> quantizeToFloat16(
+    const std::vector<float>& values);
+std::vector<float> dequantizeFromFloat16(
+    const std::vector<std::uint16_t>& values);
 DemoInputs makeDemoInputs();
 DemoInputs quantizeDemoInputsToBfloat16(const DemoInputs& demo);
+DemoInputs quantizeDemoInputsToFloat16(const DemoInputs& demo);
 std::vector<float> embedTokens(const DemoInputs& demo);
 std::vector<float> cpuLinear(const std::vector<float>& input,
                              const std::vector<float>& weight,
@@ -64,5 +71,7 @@ std::vector<float> computeReferenceLogits(const DemoInputs& demo);
 std::vector<float> computeReferenceProbabilities(const DemoInputs& demo);
 std::vector<float> computeBfloat16ReferenceProbabilities(const DemoInputs& demo);
 std::vector<float> computeBfloat16EncoderPooled(const DemoInputs& demo);
+std::vector<float> computeFloat16ReferenceProbabilities(const DemoInputs& demo);
+std::vector<float> computeFloat16EncoderPooled(const DemoInputs& demo);
 
 }  // namespace simple_transformer_reference

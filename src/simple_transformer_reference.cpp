@@ -47,6 +47,100 @@ std::vector<float> dequantizeFromBfloat16(
   return dequantized;
 }
 
+std::uint16_t floatToFloat16Bits(float value) {
+  std::uint32_t bits = 0;
+  std::memcpy(&bits, &value, sizeof(bits));
+
+  const std::uint32_t sign = (bits >> 16u) & 0x8000u;
+  const std::uint32_t exponent = (bits >> 23u) & 0xffu;
+  const std::uint32_t mantissa = bits & 0x7fffffu;
+
+  if (exponent == 0xffu) {
+    return static_cast<std::uint16_t>(
+        sign | (mantissa == 0u ? 0x7c00u : 0x7e00u));
+  }
+
+  int half_exponent = static_cast<int>(exponent) - 127 + 15;
+  if (half_exponent >= 31) {
+    return static_cast<std::uint16_t>(sign | 0x7c00u);
+  }
+
+  if (half_exponent <= 0) {
+    if (half_exponent < -10) return static_cast<std::uint16_t>(sign);
+    std::uint32_t rounded_mantissa = mantissa | 0x800000u;
+    int shift = 14 - half_exponent;
+    std::uint32_t half_mantissa = rounded_mantissa >> shift;
+    std::uint32_t round_bit = (rounded_mantissa >> (shift - 1)) & 1u;
+    std::uint32_t sticky_bits = rounded_mantissa & ((1u << (shift - 1)) - 1u);
+    if (round_bit != 0u && (sticky_bits != 0u || (half_mantissa & 1u) != 0u)) {
+      ++half_mantissa;
+    }
+    return static_cast<std::uint16_t>(sign | half_mantissa);
+  }
+
+  std::uint32_t half_mantissa = mantissa >> 13u;
+  std::uint32_t round_bits = mantissa & 0x1fffu;
+  if (round_bits > 0x1000u ||
+      (round_bits == 0x1000u && (half_mantissa & 1u) != 0u)) {
+    ++half_mantissa;
+    if (half_mantissa == 0x400u) {
+      half_mantissa = 0u;
+      ++half_exponent;
+      if (half_exponent >= 31) return static_cast<std::uint16_t>(sign | 0x7c00u);
+    }
+  }
+  return static_cast<std::uint16_t>(
+      sign | (static_cast<std::uint32_t>(half_exponent) << 10u) | half_mantissa);
+}
+
+float float16BitsToFloat(std::uint16_t bits) {
+  std::uint32_t sign = static_cast<std::uint32_t>(bits & 0x8000u) << 16u;
+  std::uint32_t exponent = (bits >> 10u) & 0x1fu;
+  std::uint32_t mantissa = bits & 0x03ffu;
+  std::uint32_t widened = 0;
+
+  if (exponent == 0u) {
+    if (mantissa == 0u) {
+      widened = sign;
+    } else {
+      int unbiased_exponent = -14;
+      while ((mantissa & 0x0400u) == 0u) {
+        mantissa <<= 1u;
+        --unbiased_exponent;
+      }
+      mantissa &= 0x03ffu;
+      widened = sign |
+                (static_cast<std::uint32_t>(unbiased_exponent + 127) << 23u) |
+                (mantissa << 13u);
+    }
+  } else if (exponent == 0x1fu) {
+    widened = sign | 0x7f800000u | (mantissa << 13u);
+  } else {
+    widened = sign | ((exponent + 112u) << 23u) | (mantissa << 13u);
+  }
+
+  float value = 0.0f;
+  std::memcpy(&value, &widened, sizeof(value));
+  return value;
+}
+
+std::vector<std::uint16_t> quantizeToFloat16(const std::vector<float>& values) {
+  std::vector<std::uint16_t> quantized(values.size());
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    quantized[i] = floatToFloat16Bits(values[i]);
+  }
+  return quantized;
+}
+
+std::vector<float> dequantizeFromFloat16(
+    const std::vector<std::uint16_t>& values) {
+  std::vector<float> dequantized(values.size());
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    dequantized[i] = float16BitsToFloat(values[i]);
+  }
+  return dequantized;
+}
+
 DemoInputs makeDemoInputs() {
   DemoInputs demo;
   demo.tokens = {1, 4, 2, 7};
@@ -71,6 +165,28 @@ DemoInputs quantizeDemoInputsToBfloat16(const DemoInputs& demo) {
   DemoInputs quantized = demo;
   auto quantize = [](const std::vector<float>& values) {
     return dequantizeFromBfloat16(quantizeToBfloat16(values));
+  };
+  quantized.token_embedding = quantize(demo.token_embedding);
+  quantized.position_embedding = quantize(demo.position_embedding);
+  quantized.wq = quantize(demo.wq);
+  quantized.wk = quantize(demo.wk);
+  quantized.wv = quantize(demo.wv);
+  quantized.wo = quantize(demo.wo);
+  quantized.w1 = quantize(demo.w1);
+  quantized.w2 = quantize(demo.w2);
+  quantized.lm_head = quantize(demo.lm_head);
+  quantized.norm_gamma = quantize(demo.norm_gamma);
+  quantized.norm_beta = quantize(demo.norm_beta);
+  quantized.zero_model_bias = quantize(demo.zero_model_bias);
+  quantized.zero_hidden_bias = quantize(demo.zero_hidden_bias);
+  quantized.zero_vocab_bias = quantize(demo.zero_vocab_bias);
+  return quantized;
+}
+
+DemoInputs quantizeDemoInputsToFloat16(const DemoInputs& demo) {
+  DemoInputs quantized = demo;
+  auto quantize = [](const std::vector<float>& values) {
+    return dequantizeFromFloat16(quantizeToFloat16(values));
   };
   quantized.token_embedding = quantize(demo.token_embedding);
   quantized.position_embedding = quantize(demo.position_embedding);
@@ -279,6 +395,14 @@ std::vector<float> computeBfloat16ReferenceProbabilities(const DemoInputs& demo)
 
 std::vector<float> computeBfloat16EncoderPooled(const DemoInputs& demo) {
   return computeEncoderPooled(quantizeDemoInputsToBfloat16(demo));
+}
+
+std::vector<float> computeFloat16ReferenceProbabilities(const DemoInputs& demo) {
+  return computeReferenceProbabilities(quantizeDemoInputsToFloat16(demo));
+}
+
+std::vector<float> computeFloat16EncoderPooled(const DemoInputs& demo) {
+  return computeEncoderPooled(quantizeDemoInputsToFloat16(demo));
 }
 
 }  // namespace simple_transformer_reference

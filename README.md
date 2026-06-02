@@ -17,10 +17,11 @@ token probabilities and an encoder-style pooled embedding:
 - two-layer feed-forward network
 - language-model head producing vocabulary logits and softmax probabilities
 - mean-pooled encoder output for sequence-level embeddings
-- BF16 parameter-storage path with FP32 accumulation for mixed-precision demos
+- BF16 and FP16 parameter-storage paths with FP32 accumulation for
+  mixed-precision demos
 
 The executable also computes a CPU reference path and fails if the CUDA
-probabilities, pooled encoder embedding, or BF16 mixed-precision outputs diverge
+probabilities, pooled encoder embedding, BF16 outputs, or FP16 outputs diverge
 from the CPU result.
 
 ## Build and run
@@ -50,4 +51,4 @@ Run the demo directly:
 
 The repository also includes a golden-output regression test for the CPU
 reference implementation, including layer normalization, ReLU, softmax, encoder
-pooling, and BF16 quantization helpers.
+pooling, BF16 quantization helpers, and FP16 quantization helpers.
