@@ -6,15 +6,21 @@ no kv-cache. Useful as a reference for what a minimal end-to-end transformer
 forward pass looks like on the GPU.
 
 - **`gpt.cu`** — GPT-style decoder-only transformer with causal
-  self-attention, tied `lm_head`, and a greedy decoding loop.
+  self-attention, tied `lm_head`, and a greedy decoding loop. fp32.
 - **`encoder.cu`** — BERT-style encoder transformer with bidirectional
-  self-attention, mean-pooled classifier head, and a single forward pass.
+  self-attention, mean-pooled classifier head, and a single forward pass. fp32.
+- **`gpt_bf16.cu`** — bf16-storage variant of `gpt.cu`. Weights and
+  activations live in `__nv_bfloat16` (half the memory bandwidth); kernels
+  load bf16, accumulate in fp32, and store bf16. The attention score matrix
+  and the final logits stay in fp32 for softmax / argmax precision.
+  Requires Ampere or newer (`sm_80+`).
 
 ## Build
 
 ```sh
 nvcc -O3 -std=c++17 gpt.cu -o gpt
 nvcc -O3 -std=c++17 encoder.cu -o encoder
+nvcc -O3 -std=c++17 -arch=sm_80 gpt_bf16.cu -o gpt_bf16
 ```
 
 ## Run
@@ -25,6 +31,9 @@ nvcc -O3 -std=c++17 encoder.cu -o encoder
 
 ./encoder          # one forward pass over a 32-token random input
 ./encoder 16       # one forward pass over a 16-token random input
+
+./gpt_bf16         # bf16 variant; same interface as ./gpt
+./gpt_bf16 64
 ```
 
 Both models are initialised with a fixed RNG seed, so the output is
