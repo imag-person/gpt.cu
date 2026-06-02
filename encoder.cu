@@ -66,32 +66,35 @@ __global__ void layernorm_kernel(const float *x, const float *g,
     int row = blockIdx.x;
     if (row >= N) return;
     extern __shared__ float smem[];
-    float *s_sum = smem;
-    float *s_sq  = smem + blockDim.x;
 
     const float *xr = x + row * C;
     float *or_ = out + row * C;
 
-    float local_sum = 0.f, local_sq = 0.f;
-    for (int i = threadIdx.x; i < C; i += blockDim.x) {
-        float v = xr[i];
-        local_sum += v;
-        local_sq  += v * v;
-    }
-    s_sum[threadIdx.x] = local_sum;
-    s_sq[threadIdx.x]  = local_sq;
+    // Two-pass: mean first, then variance over (x - mean)^2. Avoids the
+    // E[x^2] - E[x]^2 cancellation when |x| is large relative to var.
+    float local_sum = 0.f;
+    for (int i = threadIdx.x; i < C; i += blockDim.x) local_sum += xr[i];
+    smem[threadIdx.x] = local_sum;
     __syncthreads();
-
     for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-        if (threadIdx.x < stride) {
-            s_sum[threadIdx.x] += s_sum[threadIdx.x + stride];
-            s_sq[threadIdx.x]  += s_sq[threadIdx.x + stride];
-        }
+        if (threadIdx.x < stride) smem[threadIdx.x] += smem[threadIdx.x + stride];
         __syncthreads();
     }
-    float mean = s_sum[0] / C;
-    float var  = s_sq[0]  / C - mean * mean;
-    float rstd = rsqrtf(var + eps);
+    float mean = smem[0] / C;
+    __syncthreads();
+
+    float local_sq = 0.f;
+    for (int i = threadIdx.x; i < C; i += blockDim.x) {
+        float d = xr[i] - mean;
+        local_sq += d * d;
+    }
+    smem[threadIdx.x] = local_sq;
+    __syncthreads();
+    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+        if (threadIdx.x < stride) smem[threadIdx.x] += smem[threadIdx.x + stride];
+        __syncthreads();
+    }
+    float rstd = rsqrtf(smem[0] / C + eps);
 
     for (int i = threadIdx.x; i < C; i += blockDim.x) {
         float n = (xr[i] - mean) * rstd;
@@ -141,8 +144,8 @@ __global__ void attn_scores_softmax_kernel(const float *q, const float *k,
     float scale = rsqrtf((float)D);
 
     // 1. raw scores, all positions (no mask).
+    const float *qv = q + (i * H + h) * D;
     for (int j = threadIdx.x; j < T; j += blockDim.x) {
-        const float *qv = q + (i * H + h) * D;
         const float *kv = k + (j * H + h) * D;
         float s = 0.f;
         for (int d = 0; d < D; ++d) s += qv[d] * kv[d];
@@ -380,7 +383,7 @@ static void launch_matmul(const float *X, const float *W, const float *b,
 static void launch_layernorm(const float *x, const float *g, const float *bi,
                              float *out, int N, int C) {
     int threads = 256;
-    size_t shm  = 2 * threads * sizeof(float);
+    size_t shm  = threads * sizeof(float);
     layernorm_kernel<<<N, threads, shm>>>(x, g, bi, out, N, C, 1e-5f);
 }
 
@@ -414,6 +417,8 @@ static void block_forward(const Block &bl, const Config &cfg, Workspace &w,
         attn_scores_softmax_kernel<<<gs, threads, shm>>>(w.q, w.k, w.att, T, H, D);
     }
     {
+        // D=32 (one warp/block) gives low occupancy, but keeps the per-thread
+        // indexing trivial; fine for a naive reference kernel.
         dim3 gs(T, H);
         attn_value_kernel<<<gs, D>>>(w.att, w.v, w.attn_out, T, H, D);
     }
@@ -495,8 +500,8 @@ int main(int argc, char **argv) {
 
     std::vector<float> logits_h(cfg.n_classes);
     cudaEvent_t ev_start, ev_stop;
-    cudaEventCreate(&ev_start);
-    cudaEventCreate(&ev_stop);
+    CUDA_CHECK(cudaEventCreate(&ev_start));
+    CUDA_CHECK(cudaEventCreate(&ev_stop));
 
     std::printf("input: ");
     for (int t : tokens) std::printf("%d ", t);
