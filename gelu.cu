@@ -1,4 +1,5 @@
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 #ifdef GELU_TEST_MAIN
 #include <cmath>
@@ -23,6 +24,15 @@ __global__ void gelu_kernel(const float* input, float* output, int count) {
   output[index] = gelu(input[index]);
 }
 
+__global__ void gelu_kernel_fp16(const __half* input, __half* output,
+                                 int count) {
+  const int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= count) {
+    return;
+  }
+  output[index] = __float2half(gelu(__half2float(input[index])));
+}
+
 }  // namespace
 
 cudaError_t gelu_forward(const float* input, float* output, int count,
@@ -39,11 +49,26 @@ cudaError_t gelu_forward(const float* input, float* output, int count,
   return cudaGetLastError();
 }
 
+cudaError_t gelu_forward_fp16(const __half* input, __half* output, int count,
+                              cudaStream_t stream) {
+  if (input == nullptr || output == nullptr) {
+    return cudaErrorInvalidValue;
+  }
+  if (count <= 0) {
+    return cudaSuccess;
+  }
+
+  const int blocks = (count + kGeluThreadsPerBlock - 1) / kGeluThreadsPerBlock;
+  gelu_kernel_fp16<<<blocks, kGeluThreadsPerBlock, 0, stream>>>(input, output,
+                                                               count);
+  return cudaGetLastError();
+}
+
 #ifdef GELU_TEST_MAIN
 namespace {
 
-bool nearly_equal(float lhs, float rhs) {
-  return std::fabs(lhs - rhs) <= 1e-6f;
+bool nearly_equal(float lhs, float rhs, float tolerance = 1e-6f) {
+  return std::fabs(lhs - rhs) <= tolerance;
 }
 
 bool check_cuda(cudaError_t status, const char* operation) {
@@ -114,6 +139,62 @@ int main() {
     if (!nearly_equal(output[index], expected[index])) {
       std::fprintf(stderr, "Mismatch at %zu: got %.8f expected %.8f\n", index,
                    output[index], expected[index]);
+      return 1;
+    }
+  }
+
+  std::vector<__half> half_input(input.size());
+  std::vector<__half> half_output(input.size());
+  for (size_t index = 0; index < input.size(); ++index) {
+    half_input[index] = __float2half(input[index]);
+  }
+
+  __half* device_half_input = nullptr;
+  __half* device_half_output = nullptr;
+  if (!check_cuda(cudaMalloc(&device_half_input,
+                             half_input.size() * sizeof(__half)),
+                  "cudaMalloc(half input)")) {
+    return 1;
+  }
+  if (!check_cuda(cudaMalloc(&device_half_output,
+                             half_output.size() * sizeof(__half)),
+                  "cudaMalloc(half output)")) {
+    cudaFree(device_half_input);
+    return 1;
+  }
+  if (!check_cuda(cudaMemcpy(device_half_input, half_input.data(),
+                             half_input.size() * sizeof(__half),
+                             cudaMemcpyHostToDevice),
+                  "cudaMemcpy(half input)")) {
+    cudaFree(device_half_input);
+    cudaFree(device_half_output);
+    return 1;
+  }
+
+  status = gelu_forward_fp16(device_half_input, device_half_output,
+                             static_cast<int>(input.size()), nullptr);
+  if (status == cudaSuccess) {
+    status = cudaDeviceSynchronize();
+  }
+  if (status == cudaSuccess) {
+    status = cudaMemcpy(half_output.data(), device_half_output,
+                        half_output.size() * sizeof(__half),
+                        cudaMemcpyDeviceToHost);
+  }
+
+  cudaFree(device_half_input);
+  cudaFree(device_half_output);
+
+  if (status != cudaSuccess) {
+    std::fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(status));
+    return 1;
+  }
+
+  for (size_t index = 0; index < half_output.size(); ++index) {
+    const float got = __half2float(half_output[index]);
+    if (!nearly_equal(got, expected[index], 1e-3f)) {
+      std::fprintf(stderr, "FP16 mismatch at %zu: got %.8f expected %.8f\n",
+                   index, got, expected[index]);
       return 1;
     }
   }
