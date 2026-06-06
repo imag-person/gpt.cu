@@ -70,3 +70,32 @@ bpe_encode_batch_cuda(&tok, data, offsets, n_seqs, &ids, &out_offsets);
 free(ids);
 free(out_offsets);
 ```
+
+## Embedding lookup
+
+The first layer of a GPT model maps token ids to dense vectors.
+[`tokenizer/embedding.h`](tokenizer/embedding.c) provides a `[vocab_size x dim]`
+embedding table and a gather that turns a token-id sequence into an
+`[n_tokens x dim]` matrix. A CUDA gather
+([`tokenizer/embedding_cuda.cu`](tokenizer/embedding_cuda.cu)) does the same on
+the GPU, one thread per output element, bit-for-bit identical to the CPU path.
+
+```sh
+cd tokenizer
+make embed-test         # text -> BPE ids -> embeddings (CPU), with a gather check
+make embed-cuda-test    # verifies the GPU gather matches the CPU (needs nvcc + a GPU)
+```
+
+```c
+#include "embedding.h"
+
+Embedding emb;
+embedding_init(&emb, tok.vocab_size, /*dim=*/16);
+embedding_randomize(&emb, /*seed=*/1234, /*scale=*/0.1f);
+
+float *out = malloc(n_ids * 16 * sizeof(float)); /* [n_ids x dim], row-major */
+embedding_lookup(&emb, ids, n_ids, out);
+
+free(out);
+embedding_free(&emb);
+```
