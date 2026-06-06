@@ -45,3 +45,18 @@ cmake --build build --target tokenize_bytes_cuda
 The CUDA path maps each input byte to a vocab ID in parallel, which is useful for
 byte-level tokenizers and GPU-side input staging. Full greedy BPE merges remain on
 the CPU path because they are sequential and produce variable-length symbols.
+
+## CPU embedding lookup
+
+This repository also includes a dependency-free CPU embedding table in
+`include/gptcu/embedding_lookup_cpu.hpp` and `src/embedding_lookup_cpu.cpp`.
+
+The embedding file format is one whitespace-separated float row per token ID; the
+row index is the token ID used for lookup.
+
+```sh
+./build/lookup_embeddings_cpu embeddings.txt 0 3 7
+```
+
+Each requested token ID prints one embedding row, which makes it easy to inspect
+or stage token embeddings before adding more model layers.

@@ -15,8 +15,18 @@ target_include_directories(gptcu_tokenizer_cpu PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+add_library(gptcu_embedding_cpu
+    src/embedding_lookup_cpu.cpp
+)
+target_include_directories(gptcu_embedding_cpu PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
 add_executable(tokenize_bpe_cpu tools/tokenize_bpe.cpp)
 target_link_libraries(tokenize_bpe_cpu PRIVATE gptcu_tokenizer_cpu)
+
+add_executable(lookup_embeddings_cpu tools/lookup_embeddings_cpu.cpp)
+target_link_libraries(lookup_embeddings_cpu PRIVATE gptcu_embedding_cpu)
 
 if(GPTCU_ENABLE_CUDA)
     include(CheckLanguage)
@@ -47,6 +57,10 @@ enable_testing()
 add_executable(tokenizer_bpe_cpu_test tests/tokenizer_bpe_cpu_test.cpp)
 target_link_libraries(tokenizer_bpe_cpu_test PRIVATE gptcu_tokenizer_cpu)
 add_test(NAME tokenizer_bpe_cpu_test COMMAND tokenizer_bpe_cpu_test)
+
+add_executable(embedding_lookup_cpu_test tests/embedding_lookup_cpu_test.cpp)
+target_link_libraries(embedding_lookup_cpu_test PRIVATE gptcu_embedding_cpu)
+add_test(NAME embedding_lookup_cpu_test COMMAND embedding_lookup_cpu_test)
 
 if(TARGET gptcu_tokenizer_cuda)
     add_executable(tokenizer_bpe_cuda_test tests/tokenizer_bpe_cuda_test.cpp)
