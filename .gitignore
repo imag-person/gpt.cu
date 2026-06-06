@@ -3,6 +3,8 @@ tokenizer/bpe_demo
 tokenizer/bpe_cuda_demo
 tokenizer/embedding_demo
 tokenizer/embedding_cuda_demo
+tokenizer/nn_demo
+tokenizer/nn_cuda_demo
 *.o
 
 # Generated model files

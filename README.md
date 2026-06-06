@@ -99,3 +99,28 @@ embedding_lookup(&emb, ids, n_ids, out);
 free(out);
 embedding_free(&emb);
 ```
+
+## Transformer-block layers
+
+The core forward primitives that, together with attention, make up a GPT block
+live in [`tokenizer/nn.h`](tokenizer/nn.c): **LayerNorm**, **Linear**, and the
+**GELU** activation (GPT-2 tanh approximation). All operate on row-major float
+matrices where each row is one token. CUDA counterparts
+([`tokenizer/nn_cuda.cu`](tokenizer/nn_cuda.cu)) match the CPU layers up to
+floating-point rounding (CPU accumulates in double, the GPU in float).
+
+```sh
+cd tokenizer
+make nn-test         # layernorm row stats, an MLP block, and GELU spot checks
+make nn-cuda-test    # verifies the GPU layers match the CPU (needs nvcc + a GPU)
+```
+
+```c
+#include "nn.h"
+
+/* MLP block: layernorm -> linear(dim->4*dim) -> gelu -> linear(4*dim->dim) */
+layernorm_forward(x, gamma, beta, n_tokens, dim, 1e-5f, ln);
+linear_forward(ln, w1, b1, n_tokens, dim, 4 * dim, h);
+gelu_forward(h, (size_t)n_tokens * 4 * dim, h);
+linear_forward(h, w2, b2, n_tokens, 4 * dim, dim, out);
+```

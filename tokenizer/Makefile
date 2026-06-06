@@ -4,9 +4,9 @@ CFLAGS  ?= -O2 -std=c11 -Wall -Wextra
 NVCC    ?= nvcc
 NVFLAGS ?= -O2
 
-.PHONY: all test embed embed-test cuda cuda-test embed-cuda embed-cuda-test clean
+.PHONY: all test embed embed-test nn nn-test cuda cuda-test embed-cuda embed-cuda-test nn-cuda nn-cuda-test clean
 
-all: bpe_demo embedding_demo
+all: bpe_demo embedding_demo nn_demo
 
 bpe_demo: bpe_demo.c bpe.c bpe.h
 	$(CC) $(CFLAGS) -o $@ bpe_demo.c bpe.c
@@ -23,6 +23,15 @@ embedding_demo: embedding_demo.c embedding.c bpe.c embedding.h bpe.h
 
 embed-test: embedding_demo
 	./embedding_demo
+
+# CPU transformer-block layers demo (layernorm, linear, gelu). Needs -lm.
+nn: nn_demo
+
+nn_demo: nn_demo.c nn.c nn.h
+	$(CC) $(CFLAGS) -o $@ nn_demo.c nn.c -lm
+
+nn-test: nn_demo
+	./nn_demo
 
 # Optional CUDA batch encoder. Requires nvcc and a CUDA-capable GPU at runtime.
 cuda: bpe_cuda_demo
@@ -44,5 +53,15 @@ embedding_cuda_demo: embedding_cuda_demo.c embedding_cuda.cu embedding.c bpe.c e
 embed-cuda-test: embedding_cuda_demo
 	./embedding_cuda_demo
 
+# Optional CUDA transformer-block layers. Requires nvcc and a CUDA-capable GPU.
+nn-cuda: nn_cuda_demo
+
+nn_cuda_demo: nn_cuda_demo.c nn_cuda.cu nn.c nn_cuda.h nn.h
+	$(NVCC) $(NVFLAGS) -o $@ nn_cuda_demo.c nn_cuda.cu nn.c
+
+# Build and run the CUDA nn demo (verifies GPU layers match the CPU).
+nn-cuda-test: nn_cuda_demo
+	./nn_cuda_demo
+
 clean:
-	rm -f bpe_demo bpe_cuda_demo embedding_demo embedding_cuda_demo bpe.model
+	rm -f bpe_demo bpe_cuda_demo embedding_demo embedding_cuda_demo nn_demo nn_cuda_demo bpe.model
