@@ -1,0 +1,6 @@
+# Build artifacts
+tokenizer/bpe_demo
+*.o
+
+# Generated model files
+*.model
