@@ -176,4 +176,17 @@ bool CpuBpeTokenizer::has_token(const std::string& token) const {
     return vocab_.find(token) != vocab_.end();
 }
 
+CpuBpeTokenizer::TokenId CpuBpeTokenizer::token_id_for(const std::string& token) const {
+    const auto found = vocab_.find(token);
+    return found == vocab_.end() ? unknown_token_id_ : found->second;
+}
+
+bool CpuBpeTokenizer::has_merges() const {
+    return !merge_ranks_.empty();
+}
+
+std::size_t CpuBpeTokenizer::merge_count() const {
+    return merge_ranks_.size();
+}
+
 } // namespace gptcu

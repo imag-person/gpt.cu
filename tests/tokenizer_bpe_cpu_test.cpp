@@ -41,6 +41,8 @@ void test_unknown_token() {
     const auto tokenizer = make_toy_tokenizer();
     expect_eq(tokenizer.encode("z"), std::vector<gptcu::CpuBpeTokenizer::TokenId>({14}),
               "unknown byte uses configured token");
+    expect_eq(tokenizer.token_id_for("z"), gptcu::CpuBpeTokenizer::TokenId{14},
+              "token_id_for uses configured unknown token");
 }
 
 void test_file_loading_with_escaped_space() {
@@ -68,6 +70,12 @@ void test_file_loading_with_escaped_space() {
               "load escaped-space merge from files");
 }
 
+void test_merge_introspection() {
+    const auto tokenizer = make_toy_tokenizer();
+    expect_eq(tokenizer.has_merges(), true, "tokenizer reports merges");
+    expect_eq(tokenizer.merge_count(), std::size_t{7}, "tokenizer merge count");
+}
+
 } // namespace
 
 int main() {
@@ -75,6 +83,7 @@ int main() {
         test_greedy_bpe_merges();
         test_unknown_token();
         test_file_loading_with_escaped_space();
+        test_merge_introspection();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return EXIT_FAILURE;

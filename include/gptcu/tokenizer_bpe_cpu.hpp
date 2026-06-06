@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -30,6 +31,9 @@ public:
     std::string decode(const std::vector<TokenId>& token_ids) const;
 
     bool has_token(const std::string& token) const;
+    TokenId token_id_for(const std::string& token) const;
+    bool has_merges() const;
+    std::size_t merge_count() const;
 
 private:
     struct PairKey {
