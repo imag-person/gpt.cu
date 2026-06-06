@@ -60,3 +60,17 @@ row index is the token ID used for lookup.
 
 Each requested token ID prints one embedding row, which makes it easy to inspect
 or stage token embeddings before adding more model layers.
+
+## CPU next-layer primitives
+
+The `gptcu_layers_cpu` library adds small CPU building blocks for the layers that
+normally follow token and position embeddings:
+
+- `Tensor2D` for row-major sequence batches
+- `CpuLinear` for dense projections
+- `layer_norm`, `gelu`, and `residual_add`
+- `causal_self_attention` for a single pre-projected causal attention head
+- `CpuFeedForward` for a GELU MLP block
+
+These routines are intentionally dependency-free and tested as reference CPU
+implementations before adding fuller CUDA kernels.
