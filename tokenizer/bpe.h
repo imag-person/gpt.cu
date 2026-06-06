@@ -11,6 +11,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* A merge rule: token `first` followed by token `second` becomes a new id. */
 typedef struct {
     int first;
@@ -58,5 +62,9 @@ int bpe_save(const BpeTokenizer *t, const char *path);
 
 /* Load merges from `path`, rebuilding the vocabulary. Returns 0 on success. */
 int bpe_load(BpeTokenizer *t, const char *path);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* BPE_H */

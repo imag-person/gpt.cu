@@ -45,3 +45,28 @@ free(ids);
 free(bytes);
 bpe_free(&tok);
 ```
+
+## CUDA batch encoding (optional)
+
+Encoding is independent per sequence, so tokenizing a corpus is embarrassingly
+parallel. [`tokenizer/bpe_cuda.cu`](tokenizer/bpe_cuda.cu) uploads a trained
+tokenizer's merges to the GPU and encodes a whole batch of sequences at once,
+one thread per sequence. Output is bit-for-bit identical to the CPU `bpe_encode`.
+
+Requires `nvcc` and a CUDA-capable GPU at runtime:
+
+```sh
+cd tokenizer
+make cuda-test   # builds bpe_cuda_demo and verifies GPU output matches the CPU encoder
+```
+
+```c
+#include "bpe_cuda.h"
+
+/* Sequences packed CSR-style: seq i is data[offsets[i] .. offsets[i+1]). */
+int *ids;            /* concatenated token ids   */
+size_t *out_offsets; /* length n_seqs + 1        */
+bpe_encode_batch_cuda(&tok, data, offsets, n_seqs, &ids, &out_offsets);
+free(ids);
+free(out_offsets);
+```

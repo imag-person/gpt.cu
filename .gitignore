@@ -1,5 +1,6 @@
 # Build artifacts
 tokenizer/bpe_demo
+tokenizer/bpe_cuda_demo
 *.o
 
 # Generated model files
