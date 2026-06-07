@@ -40,6 +40,11 @@ std::string unescape_token(const std::string& token) {
     return out;
 }
 
+bool has_trailing_input(std::istringstream& stream) {
+    stream >> std::ws;
+    return !stream.eof();
+}
+
 std::vector<std::string> bytes_as_symbols(const std::string& text) {
     std::vector<std::string> symbols;
     symbols.reserve(text.size());
@@ -95,6 +100,9 @@ CpuBpeTokenizer CpuBpeTokenizer::FromFiles(const std::filesystem::path& vocab_pa
         if (!(stream >> token >> id)) {
             throw std::runtime_error("invalid vocab line: " + line);
         }
+        if (has_trailing_input(stream)) {
+            throw std::runtime_error("invalid vocab line: " + line);
+        }
         const auto decoded_token = unescape_token(token);
         const auto [_, inserted] = vocab.emplace(decoded_token, id);
         if (!inserted) {
@@ -117,6 +125,9 @@ CpuBpeTokenizer CpuBpeTokenizer::FromFiles(const std::filesystem::path& vocab_pa
         std::string left;
         std::string right;
         if (!(stream >> left >> right)) {
+            throw std::runtime_error("invalid merge line: " + line);
+        }
+        if (has_trailing_input(stream)) {
             throw std::runtime_error("invalid merge line: " + line);
         }
         merges.emplace_back(unescape_token(left), unescape_token(right));

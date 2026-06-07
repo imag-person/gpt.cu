@@ -105,6 +105,44 @@ void test_duplicate_vocab_token_rejected() {
                   "duplicate vocab token rejected");
 }
 
+void test_malformed_vocab_line_rejected() {
+    const auto dir = std::filesystem::temp_directory_path() / "gptcu_bpe_malformed_vocab_test";
+    std::filesystem::create_directories(dir);
+    const auto vocab_path = dir / "vocab.txt";
+    const auto merges_path = dir / "merges.txt";
+
+    {
+        std::ofstream vocab(vocab_path);
+        vocab << "foo 12bar\n";
+    }
+    {
+        std::ofstream merges(merges_path);
+    }
+
+    expect_throws([&]() { static_cast<void>(gptcu::CpuBpeTokenizer::FromFiles(vocab_path, merges_path)); },
+                  "malformed vocab line rejected");
+}
+
+void test_malformed_merge_line_rejected() {
+    const auto dir = std::filesystem::temp_directory_path() / "gptcu_bpe_malformed_merge_test";
+    std::filesystem::create_directories(dir);
+    const auto vocab_path = dir / "vocab.txt";
+    const auto merges_path = dir / "merges.txt";
+
+    {
+        std::ofstream vocab(vocab_path);
+        vocab << "a 0\n";
+        vocab << "b 1\n";
+    }
+    {
+        std::ofstream merges(merges_path);
+        merges << "a b extra\n";
+    }
+
+    expect_throws([&]() { static_cast<void>(gptcu::CpuBpeTokenizer::FromFiles(vocab_path, merges_path)); },
+                  "malformed merge line rejected");
+}
+
 } // namespace
 
 int main() {
@@ -114,6 +152,8 @@ int main() {
         test_file_loading_with_escaped_space();
         test_merge_introspection();
         test_duplicate_vocab_token_rejected();
+        test_malformed_vocab_line_rejected();
+        test_malformed_merge_line_rejected();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return EXIT_FAILURE;

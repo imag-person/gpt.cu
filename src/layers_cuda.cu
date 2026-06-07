@@ -84,8 +84,13 @@ Value* device_copy(const std::vector<Value>& host, const char* label) {
     Value* device = nullptr;
     check_cuda(cudaMalloc(reinterpret_cast<void**>(&device), host.size() * sizeof(Value)),
                label);
-    check_cuda(cudaMemcpy(device, host.data(), host.size() * sizeof(Value), cudaMemcpyHostToDevice),
-               label);
+    try {
+        check_cuda(cudaMemcpy(device, host.data(), host.size() * sizeof(Value), cudaMemcpyHostToDevice),
+                   label);
+    } catch (...) {
+        cudaFree(device);
+        throw;
+    }
     return device;
 }
 
