@@ -18,6 +18,16 @@ void expect_eq(const T& actual, const T& expected, const std::string& label) {
     }
 }
 
+template <typename Fn>
+void expect_throws(Fn&& fn, const std::string& label) {
+    try {
+        fn();
+    } catch (const std::exception&) {
+        return;
+    }
+    throw std::runtime_error("failed assertion: " + label);
+}
+
 gptcu::CpuBpeTokenizer make_toy_tokenizer() {
     return gptcu::CpuBpeTokenizer(
         {{"l", 0}, {"o", 1}, {"w", 2}, {"e", 3}, {"r", 4}, {"lo", 5},
@@ -76,6 +86,25 @@ void test_merge_introspection() {
     expect_eq(tokenizer.merge_count(), std::size_t{7}, "tokenizer merge count");
 }
 
+void test_duplicate_vocab_token_rejected() {
+    const auto dir = std::filesystem::temp_directory_path() / "gptcu_bpe_duplicate_token_test";
+    std::filesystem::create_directories(dir);
+    const auto vocab_path = dir / "vocab.txt";
+    const auto merges_path = dir / "merges.txt";
+
+    {
+        std::ofstream vocab(vocab_path);
+        vocab << "dup 0\n";
+        vocab << "dup 1\n";
+    }
+    {
+        std::ofstream merges(merges_path);
+    }
+
+    expect_throws([&]() { static_cast<void>(gptcu::CpuBpeTokenizer::FromFiles(vocab_path, merges_path)); },
+                  "duplicate vocab token rejected");
+}
+
 } // namespace
 
 int main() {
@@ -84,6 +113,7 @@ int main() {
         test_unknown_token();
         test_file_loading_with_escaped_space();
         test_merge_introspection();
+        test_duplicate_vocab_token_rejected();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return EXIT_FAILURE;

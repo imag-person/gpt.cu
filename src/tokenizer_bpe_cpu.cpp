@@ -95,7 +95,11 @@ CpuBpeTokenizer CpuBpeTokenizer::FromFiles(const std::filesystem::path& vocab_pa
         if (!(stream >> token >> id)) {
             throw std::runtime_error("invalid vocab line: " + line);
         }
-        vocab.emplace(unescape_token(token), id);
+        const auto decoded_token = unescape_token(token);
+        const auto [_, inserted] = vocab.emplace(decoded_token, id);
+        if (!inserted) {
+            throw std::runtime_error("duplicate token in vocab: " + decoded_token);
+        }
     }
 
     std::ifstream merges_file(merges_path);

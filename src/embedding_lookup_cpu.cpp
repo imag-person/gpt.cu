@@ -51,6 +51,9 @@ CpuEmbeddingTable CpuEmbeddingTable::FromTextFile(const std::filesystem::path& p
         while (stream >> value) {
             row.push_back(value);
         }
+        if (stream.fail() && !stream.eof()) {
+            throw std::runtime_error("invalid embedding value in row: " + line);
+        }
         if (row.empty()) {
             throw std::runtime_error("embedding row is empty: " + line);
         }

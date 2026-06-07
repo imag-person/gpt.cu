@@ -58,6 +58,20 @@ void test_invalid_token_id() {
     expect_throws([&]() { static_cast<void>(table.lookup(2)); }, "token id past vocab rejected");
 }
 
+void test_invalid_embedding_value_rejected() {
+    const auto dir = std::filesystem::temp_directory_path() / "gptcu_embedding_invalid_value_test";
+    std::filesystem::create_directories(dir);
+    const auto path = dir / "embeddings.txt";
+
+    std::ofstream file(path);
+    file << "0.5 0.0 -0.5\n";
+    file << "1.5 bad 0.5\n";
+    file.close();
+
+    expect_throws([&]() { static_cast<void>(gptcu::CpuEmbeddingTable::FromTextFile(path)); },
+                  "invalid embedding token rejected");
+}
+
 } // namespace
 
 int main() {
@@ -65,6 +79,7 @@ int main() {
         test_single_and_batch_lookup();
         test_file_loading();
         test_invalid_token_id();
+        test_invalid_embedding_value_rejected();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return EXIT_FAILURE;
