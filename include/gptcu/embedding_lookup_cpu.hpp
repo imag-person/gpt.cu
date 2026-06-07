@@ -23,6 +23,8 @@ public:
     std::vector<Value> lookup(TokenId token_id) const;
     std::vector<Value> lookup_many(const std::vector<TokenId>& token_ids) const;
 
+    const std::vector<Value>& weights() const;
+
 private:
     std::size_t offset_for(TokenId token_id) const;
 

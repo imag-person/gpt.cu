@@ -55,6 +55,38 @@ if(GPTCU_ENABLE_CUDA)
 
         add_executable(tokenize_bytes_cuda tools/tokenize_bytes_cuda.cpp)
         target_link_libraries(tokenize_bytes_cuda PRIVATE gptcu_tokenizer_cuda)
+
+        add_library(gptcu_embedding_cuda
+            src/embedding_lookup_cuda.cu
+        )
+        target_include_directories(gptcu_embedding_cuda PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+        )
+        target_link_libraries(gptcu_embedding_cuda PUBLIC gptcu_embedding_cpu)
+        set_target_properties(gptcu_embedding_cuda PROPERTIES
+            CUDA_STANDARD 17
+            CUDA_STANDARD_REQUIRED ON
+            CUDA_EXTENSIONS OFF
+        )
+        target_compile_options(gptcu_embedding_cuda PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>
+        )
+
+        add_library(gptcu_layers_cuda
+            src/layers_cuda.cu
+        )
+        target_include_directories(gptcu_layers_cuda PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+        )
+        target_link_libraries(gptcu_layers_cuda PUBLIC gptcu_layers_cpu)
+        set_target_properties(gptcu_layers_cuda PROPERTIES
+            CUDA_STANDARD 17
+            CUDA_STANDARD_REQUIRED ON
+            CUDA_EXTENSIONS OFF
+        )
+        target_compile_options(gptcu_layers_cuda PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>
+        )
     else()
         message(STATUS "CUDA compiler not found; skipping optional CUDA tokenizer targets")
     endif()
@@ -77,4 +109,16 @@ if(TARGET gptcu_tokenizer_cuda)
     add_executable(tokenizer_bpe_cuda_test tests/tokenizer_bpe_cuda_test.cpp)
     target_link_libraries(tokenizer_bpe_cuda_test PRIVATE gptcu_tokenizer_cuda)
     add_test(NAME tokenizer_bpe_cuda_test COMMAND tokenizer_bpe_cuda_test)
+endif()
+
+if(TARGET gptcu_embedding_cuda)
+    add_executable(embedding_lookup_cuda_test tests/embedding_lookup_cuda_test.cpp)
+    target_link_libraries(embedding_lookup_cuda_test PRIVATE gptcu_embedding_cuda)
+    add_test(NAME embedding_lookup_cuda_test COMMAND embedding_lookup_cuda_test)
+endif()
+
+if(TARGET gptcu_layers_cuda)
+    add_executable(layers_cuda_test tests/layers_cuda_test.cpp)
+    target_link_libraries(layers_cuda_test PRIVATE gptcu_layers_cuda)
+    add_test(NAME layers_cuda_test COMMAND layers_cuda_test)
 endif()

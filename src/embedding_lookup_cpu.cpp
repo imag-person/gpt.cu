@@ -98,6 +98,10 @@ std::vector<CpuEmbeddingTable::Value> CpuEmbeddingTable::lookup_many(const std::
     return result;
 }
 
+const std::vector<CpuEmbeddingTable::Value>& CpuEmbeddingTable::weights() const {
+    return weights_;
+}
+
 std::size_t CpuEmbeddingTable::offset_for(TokenId token_id) const {
     if (token_id < 0 || static_cast<std::size_t>(token_id) >= vocab_size_) {
         throw std::out_of_range("token id is out of range for embedding lookup");

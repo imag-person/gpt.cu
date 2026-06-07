@@ -65,6 +65,14 @@ std::size_t CpuLinear::output_dim() const {
     return output_dim_;
 }
 
+const std::vector<CpuLinear::Value>& CpuLinear::weights() const {
+    return weights_;
+}
+
+const std::vector<CpuLinear::Value>& CpuLinear::bias() const {
+    return bias_;
+}
+
 Tensor2D CpuLinear::forward(const Tensor2D& input) const {
     if (input.cols != input_dim_) {
         throw std::invalid_argument("linear input width does not match input_dim");

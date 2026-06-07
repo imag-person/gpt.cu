@@ -61,6 +61,15 @@ row index is the token ID used for lookup.
 Each requested token ID prints one embedding row, which makes it easy to inspect
 or stage token embeddings before adding more model layers.
 
+## Optional CUDA embedding lookup
+
+When a CUDA compiler is available, CMake also builds a GPU embedding gather in
+`include/gptcu/embedding_lookup_cuda.hpp` and `src/embedding_lookup_cuda.cu`.
+
+`embedding_lookup_cuda` gathers the requested token rows on the GPU and returns
+the same flattened, row-major result as `CpuEmbeddingTable::lookup_many`, so the
+CUDA path matches the CPU reference.
+
 ## CPU next-layer primitives
 
 The `gptcu_layers_cpu` library adds small CPU building blocks for the layers that
@@ -73,4 +82,20 @@ normally follow token and position embeddings:
 - `CpuFeedForward` for a GELU MLP block
 
 These routines are intentionally dependency-free and tested as reference CPU
-implementations before adding fuller CUDA kernels.
+implementations.
+
+## Optional CUDA next-layer primitives
+
+When a CUDA compiler is available, CMake also builds matching CUDA kernels for
+the core transformer-block layers in `include/gptcu/layers_cuda.hpp` and
+`src/layers_cuda.cu`:
+
+- `layer_norm_cuda` mirrors `layer_norm`
+- `gelu_cuda` mirrors `gelu` (GPT-2 tanh approximation)
+- `linear_cuda` mirrors `CpuLinear::forward`
+
+Each kernel reproduces the CPU math operation-for-operation (one thread per
+independent output, same accumulation order), and the CUDA targets are compiled
+with `--fmad=false` so results match the CPU reference. The
+`layers_cuda_test`/`embedding_lookup_cuda_test` suites compare the CUDA output
+against the CPU path and only build when `nvcc` is present.

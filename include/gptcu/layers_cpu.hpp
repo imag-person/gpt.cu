@@ -31,6 +31,8 @@ public:
 
     std::size_t input_dim() const;
     std::size_t output_dim() const;
+    const std::vector<Value>& weights() const;
+    const std::vector<Value>& bias() const;
     Tensor2D forward(const Tensor2D& input) const;
 
 private:
