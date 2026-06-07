@@ -106,29 +106,32 @@ extern "C" int bpe_encode_batch_cuda(const BpeTokenizer *t,
     }
     for (size_t i = 0; i < total; i++) h_work[i] = data[i];
 
-    {
-        int *d_work = NULL, *d_vals = NULL;
-        long long *d_keys = NULL;
-        size_t *d_off = NULL, *d_outlen = NULL;
-        CUDA_TRY(cudaMalloc(&d_work, (total ? total : 1) * sizeof(int)));
-        CUDA_TRY(cudaMalloc(&d_keys, (size_t)cap * sizeof(long long)));
-        CUDA_TRY(cudaMalloc(&d_vals, (size_t)cap * sizeof(int)));
-        CUDA_TRY(cudaMalloc(&d_off, (n_seqs + 1) * sizeof(size_t)));
-        CUDA_TRY(cudaMalloc(&d_outlen, n_seqs * sizeof(size_t)));
-        CUDA_TRY(cudaMemcpy(d_work, h_work, total * sizeof(int), cudaMemcpyHostToDevice));
-        CUDA_TRY(cudaMemcpy(d_keys, h_keys, (size_t)cap * sizeof(long long), cudaMemcpyHostToDevice));
-        CUDA_TRY(cudaMemcpy(d_vals, h_vals, (size_t)cap * sizeof(int), cudaMemcpyHostToDevice));
-        CUDA_TRY(cudaMemcpy(d_off, offsets, (n_seqs + 1) * sizeof(size_t), cudaMemcpyHostToDevice));
+    /* Device buffers declared in outer scope so fail: can free them. */
+    int *d_work = NULL, *d_vals = NULL;
+    long long *d_keys = NULL;
+    size_t *d_off = NULL, *d_outlen = NULL;
 
+    CUDA_TRY(cudaMalloc(&d_work, (total ? total : 1) * sizeof(int)));
+    CUDA_TRY(cudaMalloc(&d_keys, (size_t)cap * sizeof(long long)));
+    CUDA_TRY(cudaMalloc(&d_vals, (size_t)cap * sizeof(int)));
+    CUDA_TRY(cudaMalloc(&d_off, (n_seqs + 1) * sizeof(size_t)));
+    CUDA_TRY(cudaMalloc(&d_outlen, n_seqs * sizeof(size_t)));
+    CUDA_TRY(cudaMemcpy(d_work, h_work, total * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_TRY(cudaMemcpy(d_keys, h_keys, (size_t)cap * sizeof(long long), cudaMemcpyHostToDevice));
+    CUDA_TRY(cudaMemcpy(d_vals, h_vals, (size_t)cap * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA_TRY(cudaMemcpy(d_off, offsets, (n_seqs + 1) * sizeof(size_t), cudaMemcpyHostToDevice));
+
+    {
         int threads = 128;
         int blocks = (int)((n_seqs + threads - 1) / threads);
         encode_kernel<<<blocks, threads>>>(d_work, d_off, n_seqs, d_keys, d_vals, cap, d_outlen);
-        CUDA_TRY(cudaGetLastError());
-        CUDA_TRY(cudaMemcpy(h_work, d_work, total * sizeof(int), cudaMemcpyDeviceToHost));
-        CUDA_TRY(cudaMemcpy(h_outlen, d_outlen, n_seqs * sizeof(size_t), cudaMemcpyDeviceToHost));
-        cudaFree(d_work); cudaFree(d_keys); cudaFree(d_vals);
-        cudaFree(d_off); cudaFree(d_outlen);
     }
+    CUDA_TRY(cudaGetLastError());
+    CUDA_TRY(cudaMemcpy(h_work, d_work, total * sizeof(int), cudaMemcpyDeviceToHost));
+    CUDA_TRY(cudaMemcpy(h_outlen, d_outlen, n_seqs * sizeof(size_t), cudaMemcpyDeviceToHost));
+    cudaFree(d_work); cudaFree(d_keys); cudaFree(d_vals);
+    cudaFree(d_off); cudaFree(d_outlen);
+    d_work = NULL; d_keys = NULL; d_vals = NULL; d_off = NULL; d_outlen = NULL;
 
     /* Compact each sequence's prefix into contiguous output. */
     {
@@ -148,6 +151,9 @@ extern "C" int bpe_encode_batch_cuda(const BpeTokenizer *t,
     return 0;
 
 fail:
+    /* Free any device buffers allocated before the failing call. */
+    cudaFree(d_work); cudaFree(d_keys); cudaFree(d_vals);
+    cudaFree(d_off); cudaFree(d_outlen);
     free(h_keys); free(h_vals); free(h_work); free(h_outlen);
     return 2;
 host_fail:

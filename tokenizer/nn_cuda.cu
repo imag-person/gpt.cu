@@ -4,12 +4,6 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
-#define CUDA_OK(call)                                                       \
-    do {                                                                    \
-        cudaError_t err__ = (call);                                         \
-        if (err__ != cudaSuccess) return (int)err__;                       \
-    } while (0)
-
 /* One thread per row: compute mean/variance, then normalize and scale. */
 __global__ void layernorm_kernel(const float *x, const float *gamma,
                                  const float *beta, int n_rows, int dim,
@@ -61,19 +55,21 @@ int layernorm_forward_cuda(const float *x, const float *gamma, const float *beta
                            int n_rows, int dim, float eps, float *out) {
     size_t n = (size_t)n_rows * dim;
     float *dx = NULL, *dg = NULL, *db = NULL, *dy = NULL;
-    CUDA_OK(cudaMalloc(&dx, n * sizeof(float)));
-    CUDA_OK(cudaMalloc(&dg, (size_t)dim * sizeof(float)));
-    CUDA_OK(cudaMalloc(&db, (size_t)dim * sizeof(float)));
-    CUDA_OK(cudaMalloc(&dy, n * sizeof(float)));
-    CUDA_OK(cudaMemcpy(dx, x, n * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_OK(cudaMemcpy(dg, gamma, (size_t)dim * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_OK(cudaMemcpy(db, beta, (size_t)dim * sizeof(float), cudaMemcpyHostToDevice));
-    int threads = 256, blocks = (n_rows + threads - 1) / threads;
-    layernorm_kernel<<<blocks, threads>>>(dx, dg, db, n_rows, dim, eps, dy);
-    CUDA_OK(cudaGetLastError());
-    CUDA_OK(cudaMemcpy(out, dy, n * sizeof(float), cudaMemcpyDeviceToHost));
+    int rc = 0;
+    if (cudaMalloc(&dx, n * sizeof(float)) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMalloc(&dg, (size_t)dim * sizeof(float)) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMalloc(&db, (size_t)dim * sizeof(float)) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMalloc(&dy, n * sizeof(float)) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMemcpy(dx, x, n * sizeof(float), cudaMemcpyHostToDevice) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMemcpy(dg, gamma, (size_t)dim * sizeof(float), cudaMemcpyHostToDevice) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMemcpy(db, beta, (size_t)dim * sizeof(float), cudaMemcpyHostToDevice) != cudaSuccess) { rc = 1; goto cleanup; }
+    { int threads = 256, blocks = (n_rows + threads - 1) / threads;
+      layernorm_kernel<<<blocks, threads>>>(dx, dg, db, n_rows, dim, eps, dy); }
+    if (cudaGetLastError() != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMemcpy(out, dy, n * sizeof(float), cudaMemcpyDeviceToHost) != cudaSuccess) { rc = 1; goto cleanup; }
+cleanup:
     cudaFree(dx); cudaFree(dg); cudaFree(db); cudaFree(dy);
-    return 0;
+    return rc;
 }
 
 int linear_forward_cuda(const float *x, const float *weight, const float *bias,
@@ -81,33 +77,36 @@ int linear_forward_cuda(const float *x, const float *weight, const float *bias,
     size_t nx = (size_t)n_rows * in_f, ny = (size_t)n_rows * out_f;
     size_t nw = (size_t)out_f * in_f;
     float *dx = NULL, *dw = NULL, *dbias = NULL, *dy = NULL;
-    CUDA_OK(cudaMalloc(&dx, nx * sizeof(float)));
-    CUDA_OK(cudaMalloc(&dw, nw * sizeof(float)));
-    CUDA_OK(cudaMalloc(&dy, ny * sizeof(float)));
-    CUDA_OK(cudaMemcpy(dx, x, nx * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_OK(cudaMemcpy(dw, weight, nw * sizeof(float), cudaMemcpyHostToDevice));
+    int rc = 0;
+    if (cudaMalloc(&dx, nx * sizeof(float)) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMalloc(&dw, nw * sizeof(float)) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMalloc(&dy, ny * sizeof(float)) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMemcpy(dx, x, nx * sizeof(float), cudaMemcpyHostToDevice) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMemcpy(dw, weight, nw * sizeof(float), cudaMemcpyHostToDevice) != cudaSuccess) { rc = 1; goto cleanup; }
     if (bias) {
-        CUDA_OK(cudaMalloc(&dbias, (size_t)out_f * sizeof(float)));
-        CUDA_OK(cudaMemcpy(dbias, bias, (size_t)out_f * sizeof(float), cudaMemcpyHostToDevice));
+        if (cudaMalloc(&dbias, (size_t)out_f * sizeof(float)) != cudaSuccess) { rc = 1; goto cleanup; }
+        if (cudaMemcpy(dbias, bias, (size_t)out_f * sizeof(float), cudaMemcpyHostToDevice) != cudaSuccess) { rc = 1; goto cleanup; }
     }
-    int threads = 256, blocks = (int)((ny + threads - 1) / threads);
-    linear_kernel<<<blocks, threads>>>(dx, dw, dbias, n_rows, in_f, out_f, dy);
-    CUDA_OK(cudaGetLastError());
-    CUDA_OK(cudaMemcpy(out, dy, ny * sizeof(float), cudaMemcpyDeviceToHost));
+    { int threads = 256, blocks = (int)((ny + threads - 1) / threads);
+      linear_kernel<<<blocks, threads>>>(dx, dw, dbias, n_rows, in_f, out_f, dy); }
+    if (cudaGetLastError() != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMemcpy(out, dy, ny * sizeof(float), cudaMemcpyDeviceToHost) != cudaSuccess) { rc = 1; goto cleanup; }
+cleanup:
     cudaFree(dx); cudaFree(dw); cudaFree(dbias); cudaFree(dy);
-    return 0;
+    return rc;
 }
 
 int gelu_forward_cuda(const float *x, size_t n, float *out) {
     float *dx = NULL, *dy = NULL;
-    CUDA_OK(cudaMalloc(&dx, n * sizeof(float)));
-    CUDA_OK(cudaMalloc(&dy, n * sizeof(float)));
-    CUDA_OK(cudaMemcpy(dx, x, n * sizeof(float), cudaMemcpyHostToDevice));
-    int threads = 256;
-    size_t blocks = (n + threads - 1) / threads;
-    gelu_kernel<<<blocks, threads>>>(dx, n, dy);
-    CUDA_OK(cudaGetLastError());
-    CUDA_OK(cudaMemcpy(out, dy, n * sizeof(float), cudaMemcpyDeviceToHost));
+    int rc = 0;
+    if (cudaMalloc(&dx, n * sizeof(float)) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMalloc(&dy, n * sizeof(float)) != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMemcpy(dx, x, n * sizeof(float), cudaMemcpyHostToDevice) != cudaSuccess) { rc = 1; goto cleanup; }
+    { int threads = 256; size_t blocks = (n + threads - 1) / threads;
+      gelu_kernel<<<blocks, threads>>>(dx, n, dy); }
+    if (cudaGetLastError() != cudaSuccess) { rc = 1; goto cleanup; }
+    if (cudaMemcpy(out, dy, n * sizeof(float), cudaMemcpyDeviceToHost) != cudaSuccess) { rc = 1; goto cleanup; }
+cleanup:
     cudaFree(dx); cudaFree(dy);
-    return 0;
+    return rc;
 }
