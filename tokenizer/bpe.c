@@ -267,6 +267,10 @@ int bpe_load(BpeTokenizer *t, const char *path) {
         fclose(f);
         return 2;
     }
+    if (vocab_size < 256) {   /* must cover the 256 base byte tokens */
+        fclose(f);
+        return 2;
+    }
     bpe_free(t);
     bpe_init(t);
     t->vocab_size = vocab_size;
